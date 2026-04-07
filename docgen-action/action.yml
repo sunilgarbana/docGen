@@ -1,0 +1,15 @@
+name: DocGen — Auto Documentation
+on:
+  push:
+    branches: [main]
+
+jobs:
+  generate-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Generate docs
+        run: |
+          curl -X POST https://your-railway-url.up.railway.app/api/jobs/webhook \
+            -H "Content-Type: application/json" \
+            -d '{"repoUrl": "${{ github.repositoryUrl }}", "commitHash": "${{ github.sha }}", "secret": "${{ secrets.DOCGEN_SECRET }}"}'

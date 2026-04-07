@@ -45,6 +45,50 @@ router.post(
   }
 );
 
+// POST /api/jobs/webhook — GitHub Action Webhook
+router.post('/webhook', async (req, res, next) => {
+  const { repoUrl, commitHash, secret } = req.body;
+
+  if (!secret || secret !== process.env.WEBHOOK_SECRET) {
+    return res.status(401).json({ error: { message: 'Unauthorized: Invalid webhook secret' } });
+  }
+
+  try {
+    // Normalize github URL (e.g., from git://github.com/owner/repo.git)
+    const cleanUrl = String(repoUrl).replace(/^git:\/\//, 'https://').replace(/\.git$/, '');
+
+    // Extract basic name
+    const match = cleanUrl.match(/github\.com\/([^/]+)\/([^/]+)/);
+    const name = match ? match[2] : 'Unknown Repo';
+
+    // Find the repo by URL. If it doesn't exist, assign it to an administrative proxy user
+    let repo = await prisma.repo.findFirst({ where: { githubUrl: cleanUrl } });
+
+    if (!repo) {
+      const adminUser = await prisma.user.findFirst();
+      if (!adminUser) {
+        return res.status(400).json({ error: { message: 'Platform has no registered users to attach repo to' } });
+      }
+
+      repo = await prisma.repo.create({
+        data: {
+          userId: adminUser.id,
+          githubUrl: cleanUrl,
+          name,
+        },
+      });
+    }
+
+    // Trigger doc generation job synchronously in background
+    const jobId = await addDocJob(repo.id, repo.githubUrl);
+
+    // Return 200 immediately so the Action completes quickly
+    res.status(200).json({ message: 'Doc generation job queued successfully', jobId });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // GET /api/jobs/:id — get job status
 router.get('/:id', requireAuth, async (req, res, next) => {
   try {
